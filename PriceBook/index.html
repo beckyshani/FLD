@@ -258,14 +258,17 @@ async function renderPDFToCanvas(url, width, height) {
   const pdf = await pdfjsLib.getDocument(url).promise;
   const page = await pdf.getPage(1);
 
-  // Scale the PDF page to exactly fit our target width
+  const dpr = window.devicePixelRatio || 1; // ✅ get screen pixel ratio (e.g. 2 on retina)
+
   const nativeViewport = page.getViewport({ scale: 1 });
-  const scale = width / nativeViewport.width;
+  const scale = (width / nativeViewport.width) * dpr; // ✅ render at physical pixel size
   const viewport = page.getViewport({ scale });
 
   const canvas = document.createElement('canvas');
-  canvas.width = viewport.width;
+  canvas.width = viewport.width;   // physical pixels (e.g. 1190 on retina)
   canvas.height = viewport.height;
+  canvas.style.width = width + 'px';   // ✅ CSS size stays the same as before
+  canvas.style.height = height + 'px';
 
   await page.render({
     canvasContext: canvas.getContext('2d'),
@@ -495,17 +498,17 @@ async function togglePagesOverlay() {
   }
 
   if (!overlayBuilt) {
+    overlayBuilt = true; // ✅ Set immediately — prevents double-build if clicked again while loading
     const grid = document.getElementById('pages-grid');
     for (let p = 1; p <= totalPages; p++) {
       const wrap = document.createElement('div');
       wrap.className = 'page-thumb-wrap';
 
-      // Render a small thumbnail canvas (120px wide)
       const thumbCanvas = await renderPDFToCanvas('pages/' + p + '.pdf', 120, 120 * (A4_HEIGHT / A4_WIDTH));
       thumbCanvas.style.width = '120px';
       thumbCanvas.style.height = 'auto';
 
-      const pageNum = p; // capture for closure
+      const pageNum = p;
       thumbCanvas.addEventListener('click', function () {
         pageFlip.flip(pageNum);
         overlay.style.display = 'none';
@@ -519,7 +522,6 @@ async function togglePagesOverlay() {
       wrap.appendChild(label);
       grid.appendChild(wrap);
     }
-    overlayBuilt = true;
   }
 
   overlay.style.display = 'flex';
