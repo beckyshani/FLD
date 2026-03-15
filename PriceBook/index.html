@@ -265,13 +265,13 @@ function loadPages() {
   }
 
   const img = new Image();
-  img.src = "pages/" + i + ".jpg";
+  img.src = "pages/" + i + ".pdf";
 
   img.onload = function () {
     const page = document.createElement('div');
     page.className = 'page';
     const image = document.createElement('img');
-    image.src = "pages/" + i + ".jpg";
+    image.src = "pages/" + i + ".pdf";
     page.appendChild(image);
     container.appendChild(page);
     i++;
