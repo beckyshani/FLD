@@ -6,6 +6,8 @@
 <title>My Flipbook</title>
 
 <script src="page-flip.js"></script>
+<!-- ✅ CHANGE 1: Added PDF.js library -->
+<script src="pdf.min.js"></script>
 
 <style>
 * {
@@ -48,8 +50,10 @@ background: #000;
 overflow: hidden;
 }
 
+/* ✅ CHANGE 2: canvas gets the same mirror + sizing treatment as img/video had */
 #flipbook-container .page img,
-#flipbook-container .page video {
+#flipbook-container .page video,
+#flipbook-container .page canvas {
 width: 100%;
 height: 100%;
 object-fit: contain;
@@ -140,16 +144,18 @@ background: rgba(255, 255, 255, 0.2);
   justify-content: center;
 }
 
-#pages-grid img {
+/* ✅ CHANGE 3: thumbnails are now <canvas> elements, not <img> */
+#pages-grid canvas {
   width: 120px;
   height: auto;
   cursor: pointer;
   border: 3px solid transparent;
   border-radius: 4px;
   transition: border 0.2s;
+  display: block;
 }
 
-#pages-grid img:hover {
+#pages-grid canvas:hover {
   border-color: #fff;
 }
 
@@ -205,6 +211,10 @@ background: rgba(255, 255, 255, 0.2);
 <audio id="flipSound" src="sounds/flip.mp3"></audio>
 
 <script>
+// ✅ CHANGE 4: Set the PDF.js worker source (required by PDF.js)
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
 const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
 window.RTL_FLIPBOOK = true;
 const container = document.getElementById('flipbook-container');
@@ -219,7 +229,7 @@ const A4_HEIGHT = 842;
 let PAGE_WIDTH, PAGE_HEIGHT;
 
 if (isMobile) {
-  const padding = 40; // breathing room on sides
+  const padding = 40;
   PAGE_WIDTH = window.innerWidth - padding;
   PAGE_HEIGHT = PAGE_WIDTH * (A4_HEIGHT / A4_WIDTH);
 } else {
@@ -238,50 +248,62 @@ function updateCounter(pageIndex) {
     const right = Math.min(pageIndex + 1, totalPages);
     counter.textContent = left === right ? `${left}` : `${left}-${right}`;
     document.getElementById('btn-prev').style.visibility = 'visible';
-	document.getElementById('btn-next').style.visibility =
-  (pageIndex >= (isMobile ? totalPages : totalPages - 1)) ? 'hidden' : 'visible';
+    document.getElementById('btn-next').style.visibility =
+      (pageIndex >= (isMobile ? totalPages : totalPages - 1)) ? 'hidden' : 'visible';
   }
 }
 
-function loadPages() {
+// ✅ CHANGE 5: Helper — renders a PDF file's first page into a <canvas> at the given pixel size
+async function renderPDFToCanvas(url, width, height) {
+  const pdf = await pdfjsLib.getDocument(url).promise;
+  const page = await pdf.getPage(1);
+
+  // Scale the PDF page to exactly fit our target width
+  const nativeViewport = page.getViewport({ scale: 1 });
+  const scale = width / nativeViewport.width;
+  const viewport = page.getViewport({ scale });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+
+  await page.render({
+    canvasContext: canvas.getContext('2d'),
+    viewport
+  }).promise;
+
+  return canvas;
+}
+
+// ✅ CHANGE 6: Completely replaced loadPages() — no more mp4/jpg, all PDFs
+async function loadPages() {
+  // Add a blank first page (right-hand cover opens to blank left side)
   if (i === 1) {
     const blank = document.createElement('div');
     blank.className = 'page';
     container.appendChild(blank);
-
-    const page = document.createElement('div');
-    page.className = 'page';
-    const video = document.createElement('video');
-    video.src = 'pages/1.mp4';
-    video.autoplay = true;
-    video.muted = true;
-    video.playsInline = true;
-    page.appendChild(video);
-    container.appendChild(page);
-
-    i = 2;
-    loadPages();
-    return;
   }
 
-  const img = new Image();
-  img.src = "pages/" + i + ".pdf";
+  try {
+    // Check if the next PDF exists by fetching its headers
+    const res = await fetch('pages/' + i + '.pdf', { method: 'HEAD' });
+    if (!res.ok) throw new Error('not found');
 
-  img.onload = function () {
+    // Render the PDF page into a canvas
+    const canvas = await renderPDFToCanvas('pages/' + i + '.pdf', PAGE_WIDTH, PAGE_HEIGHT);
+
     const page = document.createElement('div');
     page.className = 'page';
-    const image = document.createElement('img');
-    image.src = "pages/" + i + ".pdf";
-    page.appendChild(image);
+    page.appendChild(canvas);
     container.appendChild(page);
-    i++;
-    loadPages();
-  };
 
-  img.onerror = function () {
+    i++;
+    loadPages(); // continue loading next page
+  } catch (e) {
+    // No more pages — finalise
     totalPages = i - 1;
     initFlipbook();
-  };
+  }
 }
 
 // Mobile setup
@@ -297,7 +319,7 @@ if (isMobile) {
   btnNext.style.top = '50%';
   btnNext.style.transform = 'translateY(-50%)';
   btnNext.style.zIndex = '999';
-  btnNext.style.left = (gap)+ 'px';
+  btnNext.style.left = (gap) + 'px';
   btnNext.style.right = 'auto';
 
   btnPrev.style.position = 'fixed';
@@ -315,9 +337,9 @@ if (isMobile) {
     btn.style.padding = '10px 14px';
   });
   const counter = document.getElementById('page-counter');
-counter.style.top = '10px';   // adjust this
-counter.style.left = '10px';  // adjust this
-counter.style.transform = 'none';
+  counter.style.top = '10px';
+  counter.style.left = '10px';
+  counter.style.transform = 'none';
 }
 
 function initFlipbook() {
@@ -386,10 +408,9 @@ function setFocus(side) {
       : `translateX(${PAGE_WIDTH / 2}px)`;
     focusSide = side;
   }
-   // update btn-next visibility on mobile based on focus
   if (isMobile) {
     const currentPage = pageFlip.getCurrentPageIndex();
-    if (currentPage >= totalPages-1 && side === 'left') {
+    if (currentPage >= totalPages - 1 && side === 'left') {
       document.getElementById('btn-next').style.visibility = 'hidden';
     } else {
       document.getElementById('btn-next').style.visibility = 'visible';
@@ -457,7 +478,7 @@ function downloadPDF() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'PriceBook.pdf';
+      a.download = 'katalog2026.pdf';
       a.click();
       URL.revokeObjectURL(url);
     });
@@ -465,7 +486,8 @@ function downloadPDF() {
 
 let overlayBuilt = false;
 
-function togglePagesOverlay() {
+// ✅ CHANGE 7: Thumbnails in the overlay are now rendered canvases instead of <img> tags
+async function togglePagesOverlay() {
   const overlay = document.getElementById('pages-overlay');
   if (overlay.style.display === 'flex') {
     overlay.style.display = 'none';
@@ -478,10 +500,14 @@ function togglePagesOverlay() {
       const wrap = document.createElement('div');
       wrap.className = 'page-thumb-wrap';
 
-      const img = document.createElement('img');
-      img.src = 'pages/' + p + '.pdf';
-      img.addEventListener('click', function () {
-        pageFlip.flip(p);
+      // Render a small thumbnail canvas (120px wide)
+      const thumbCanvas = await renderPDFToCanvas('pages/' + p + '.pdf', 120, 120 * (A4_HEIGHT / A4_WIDTH));
+      thumbCanvas.style.width = '120px';
+      thumbCanvas.style.height = 'auto';
+
+      const pageNum = p; // capture for closure
+      thumbCanvas.addEventListener('click', function () {
+        pageFlip.flip(pageNum);
         overlay.style.display = 'none';
       });
 
@@ -489,7 +515,7 @@ function togglePagesOverlay() {
       label.className = 'page-thumb-label';
       label.textContent = p;
 
-      wrap.appendChild(img);
+      wrap.appendChild(thumbCanvas);
       wrap.appendChild(label);
       grid.appendChild(wrap);
     }
